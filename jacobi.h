@@ -14,6 +14,16 @@
 #ifndef JACOBI_H
 #define JACOBI_H
 
+#include <vector>
+
+using namespace std;
+
+
+void find_DandR(const int n, const double* A, vector<double>& D, vector<double>& R);
+
+void invert_D(const vector<double>& D, vector<double>& D_inv);
+
+
 /**
  * @brief   Performs the matrix vector product: y = A*x
  *
@@ -38,7 +48,11 @@ void matrix_vector_mult(const int n, const double* A,
 void matrix_vector_mult(const int n, const int m, const double* A,
                         const double* x, double* y);
 
+double l2_norm(vector<double> const& u);
 
+double L2_norm(const int n, const double* A, const double* x, const double* b);
+
+void update_x(const int n, const vector<double> &D_inv, const double* b, const vector<double>& R, double* x);
 /**
  * @brief   Performs Jacobi's method for solving A*x=b for x.
  *
