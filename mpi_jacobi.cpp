@@ -28,6 +28,62 @@ using namespace std;
 void distribute_vector(const int n, double* input_vector, double** local_vector, MPI_Comm comm)
 {
     // TODO
+    //process rank in cartesian coordinates
+    int grid_rank;
+    //process coordinates
+    int grid_coord[2];
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
+
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
+
+    //find grid_coord in the cartesian top
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+
+
+    //make a communicator in just the columns to communicate the vector
+    MPI_Comm col_comm;
+    int remain_dims[2] = {true, false};
+    MPI_Cart_sub(comm, remain_dims, &col_comm);
+
+    if(grid_coord[1] == 0){
+      //calculate block of vector distribute in the first column
+      vector<int> sendcnt(dims[0], 0);
+      vector<int> displ(dims[0], 0);
+
+      //update sendcnts and displaces cnts
+      for(int i = 0; i < dims[0]; i++){
+        sendcnt[i] = block_decompose(n, dims[0], i);
+        if(i == 0)displ[0] = 0;
+        else displ[i] = displ[i-1] + sendcnt[i-1];
+      }
+
+      //calculate recv size for first row
+      int recvcnt = block_decompose_by_dim(n, comm, 0);
+
+      //allocate size for the local vector
+      (*local_vector) = new double[recvcnt];
+
+      //find the root in first col
+      int root;
+      int root_coords[] = {0};
+      MPI_Cart_rank(col_comm, root_coords, &root);
+
+      //scatter value to different processors
+      MPI_Scatterv(input_vector, &sendcnt[0], &displ[0], MPI_DOUBLE, *local_vector, recvcnt, MPI_DOUBLE, root, col_comm);
+
+      /*//print the vector;
+      for(int i = 0;i<recvcnt;i++){
+        cout<<(*local_vector)[i]<<" ";
+      }
+      cout<<endl;*/
+    }
 }
 
 
@@ -39,85 +95,85 @@ void gather_vector(const int n, double* local_vector, double* output_vector, MPI
 
 void distribute_matrix(const int n, double* input_matrix, double** local_matrix, MPI_Comm comm)
 {
-  //TODO
-  //process rank in the cartesian coordinates
-  int grid_rank;
-  //number of local_rows(local matrix)
-  int n_local_rows = 0;
-  //number of local_columns(local matrix)
-  int n_local_cols = 0;
-  //MPI Recv status
-  MPI_Status status;
-  //rank of recv process in cart common
-  int dest_rank;
-  //process coordinates in cartesia
-  int grid_coord[2];
-  //size of processors
-  int p;
-  //dimension
-  int dims[2];
-  //period
-  int periods[2];
-  //start_address of the block to be send
-  double* start_address;
+    //TODO
+    //process rank in the cartesian coordinates
+    int grid_rank;
+    //number of local_rows(local matrix)
+    int n_local_rows = 0;
+    //number of local_columns(local matrix)
+    int n_local_cols = 0;
+    //MPI Recv status
+    MPI_Status status;
+    //rank of recv process in cart common
+    int dest_rank;
+    //process coordinates in cartesia
+    int grid_coord[2];
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
+    //start_address of the block to be send
+    double* start_address;
 
-  MPI_Comm_rank(comm, &grid_rank);
-  MPI_Comm_size(comm, &p);
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
 
-  //find the number of rows and cols owned by each processor
-  n_local_rows = block_decompose_by_dim(n, comm, 0);
-  n_local_cols = block_decompose_by_dim(n, comm, 1);
+    //find the number of rows and cols owned by each processor
+    n_local_rows = block_decompose_by_dim(n, comm, 0);
+    n_local_cols = block_decompose_by_dim(n, comm, 1);
 
-  //local matrix size allocated for each processor
-  /* = (double **)malloc( n_local_rows* sizeof(double *));
-  for (int i=0; i<n_local_rows; i++)
-    local_matrix[i] = (double *)malloc(n_local_cols * sizeof(double));*/
+    //local matrix size allocated for each processor
+    /* = (double **)malloc( n_local_rows* sizeof(double *));
+    for (int i=0; i<n_local_rows; i++)
+      local_matrix[i] = (double *)malloc(n_local_cols * sizeof(double));*/
 
-  // Allocate spaces for local matrix(this way was nice else I will change the pointer)
-  (*local_matrix) = new double[n_local_cols * n_local_rows];
+    // Allocate spaces for local matrix(this way was nice else I will change the pointer)
+    (*local_matrix) = new double[n_local_cols * n_local_rows];
 
-  //get dimensions and grid_coord
-  int rank00;
-  int coords[2] = {0, 0};
-  MPI_Cart_rank(comm, coords, &rank00);
-  MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+    //get dimensions and grid_coord
+    int rank00;
+    int coords[2] = {0, 0};
+    MPI_Cart_rank(comm, coords, &rank00);
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
 
-  //iterate over grid row
-  for(int i = 0; i < dims[0]; i++){
-    grid_coord[0] = i;
-    //go over each row within a block of matrix
-    for(int j = 0; j < block_decompose(n, dims[0], i); j++){
-      //go over each column in grid row
-      for(int k = 0; k < dims[1]; k++){
-        grid_coord[1] = k;
-        //calculate the destination rank where the block is supposed to be delivered
-        MPI_Cart_rank(comm, grid_coord, &dest_rank);
+    //iterate over grid row
+    for(int i = 0; i < dims[0]; i++){
+      grid_coord[0] = i;
+      //go over each row within a block of matrix
+      for(int j = 0; j < block_decompose(n, dims[0], i); j++){
+        //go over each column in grid row
+        for(int k = 0; k < dims[1]; k++){
+          grid_coord[1] = k;
+          //calculate the destination rank where the block is supposed to be delivered
+          MPI_Cart_rank(comm, grid_coord, &dest_rank);
 
-        //see if its master
-        if(rank00 == grid_rank){
-          if(i == 0 && k == 0) start_address = &input_matrix[ 0 + (j*n)];
-          else if(i==0 && k!=0) start_address = &input_matrix[0 + (j*n) + (k * block_decompose(n, dims[1], k-1))];
-          else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1))+(j*n)+(k * block_decompose(n, dims[1], k-1))];
-          //no need to send the matrix and keep it here in new location
-          if(dest_rank == rank00){
-            //memcpy(local_matrix[j], start_address, n_local_cols * sizeof(double));
-            for(int i = 0; i <n_local_cols;i++){
-              //local_matrix[i+(j*n_local_cols)] = start_address[i];
-              (*local_matrix + j*n_local_cols)[i] = start_address[i];
+          //see if its master
+          if(rank00 == grid_rank){
+            if(i == 0 && k == 0) start_address = &input_matrix[ 0 + (j*n)];
+            else if(i==0 && k!=0) start_address = &input_matrix[0 + (j*n) + (k * block_decompose(n, dims[1], k-1))];
+            else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1))+(j*n)+(k * block_decompose(n, dims[1], k-1))];
+            //no need to send the matrix and keep it here in new location
+            if(dest_rank == rank00){
+              //memcpy(local_matrix[j], start_address, n_local_cols * sizeof(double));
+              for(int i = 0; i <n_local_cols;i++){
+                //local_matrix[i+(j*n_local_cols)] = start_address[i];
+                (*local_matrix + j*n_local_cols)[i] = start_address[i];
+              }
+            }
+            //need to send the matrix to other processor
+            else{
+              MPI_Send(start_address, block_decompose(n, dims[1], k), MPI_DOUBLE, dest_rank, 111, comm);
             }
           }
-          //need to send the matrix to other processor
-          else{
-            MPI_Send(start_address, block_decompose(n, dims[1], k), MPI_DOUBLE, dest_rank, 111, comm);
+          //recv from zero
+          else if(grid_rank == dest_rank){
+            MPI_Recv((*local_matrix + j*n_local_cols), n_local_cols, MPI_DOUBLE, rank00, 111, comm, &status);
           }
-        }
-        //recv from zero
-        else if(grid_rank == dest_rank){
-          MPI_Recv((*local_matrix + j*n_local_cols), n_local_cols, MPI_DOUBLE, rank00, 111, comm, &status);
-        }
-      }//end for k
-    }//end for j
-  }//end for i
+        }//end for k
+      }//end for j
+    }//end for i
 }
 
 void transpose_bcast_vector(const int n, double* col_vector, double* row_vector, MPI_Comm comm)
