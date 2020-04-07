@@ -220,11 +220,11 @@ void distribute_matrix(const int n, double* input_matrix, double** local_matrix,
           else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1)*n)+(j*n)+(k * block_decompose(n, dims[1], k-1))];
           //no need to send the matrix and keep it here in new location
           if(dest_rank == rank00){
-            //memcpy(local_matrix[j], start_address, n_local_cols * sizeof(double));
-            for(int i = 0; i <n_local_cols;i++){
+            memcpy((*local_matrix + j*n_local_cols), start_address, n_local_cols * sizeof(double));
+            /*for(int i = 0; i <n_local_cols;i++){
               //local_matrix[i+(j*n_local_cols)] = start_address[i];
               (*local_matrix + j*n_local_cols)[i] = start_address[i];
-            }
+            }*/
           }
           //need to send the matrix to other processor
           else{
@@ -281,12 +281,12 @@ int main(int argc, char *argv[])
    int n = 5;
    double* local_A = NULL;
    double* local_x = NULL;
-   //distribute_matrix(n, &A[0], &local_A, grid_comm);
-   distribute_vector(n, &x[0], &local_x, grid_comm);
+   distribute_matrix(n, &A[0], &local_A, grid_comm);
+   //distribute_vector(n, &x[0], &local_x, grid_comm);
    // Get the local vector for matrix multiplication
-   int n_local_cols = block_decompose_by_dim(n, grid_comm, 1);
-   double* local_xx = new double[n_local_cols];
-   transpose_bcast_vector(n, local_x, local_xx, grid_comm);
+   //int n_local_cols = block_decompose_by_dim(n, grid_comm, 1);
+   //double* local_xx = new double[n_local_cols];
+   //transpose_bcast_vector(n, local_x, local_xx, grid_comm);
 
 
    //if(local_x != NULL)cout<<local_x[0]<<endl;
