@@ -91,6 +91,59 @@ void distribute_vector(const int n, double* input_vector, double** local_vector,
 void gather_vector(const int n, double* local_vector, double* output_vector, MPI_Comm comm)
 {
     // TODO
+    //process rank in cartesian coordinates
+    int grid_rank;
+    //process coordinates
+    int grid_coord[2];
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
+
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
+
+    //find grid_coord in the cartesian top
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+    //make a communicator in just the columns to communicate the vector
+    MPI_Comm col_comm;
+    int remain_dims[2] = {true, false};
+    MPI_Cart_sub(comm, remain_dims, &col_comm);
+
+    if(grid_coord[1] == 0){
+      //calculate block of vector distribute in the first column
+      vector<int> recvcnt(dims[0], 0);
+      vector<int> displ(dims[0], 0);
+
+      //update sendcnts and displaces cnts
+      for(int i = 0; i < dims[0]; i++){
+        recvcnt[i] = block_decompose(n, dims[0], i);
+        if(i == 0)displ[0] = 0;
+        else displ[i] = displ[i-1] + recvcnt[i-1];
+      }
+
+      //calculate send size for first row
+      int sendcnt = block_decompose_by_dim(n, comm, 0);
+
+      //find the root in first col{0,0}
+      int root;
+      int root_coords[] = {0};
+      MPI_Cart_rank(col_comm, root_coords, &root);
+
+      // Gather values from different processors
+      MPI_Gatherv(local_vector, sendcnt, MPI_DOUBLE, output_vector, &recvcnt[0], &displ[0], MPI_DOUBLE, root, col_comm);
+
+      /*if(root==grid_rank){
+        for(int i=0;i<n;i++){
+          cout<<output_vector[i]<<" ";
+        }
+        cout<<endl;
+      }*/
+    }
+
 }
 
 void distribute_matrix(const int n, double* input_matrix, double** local_matrix, MPI_Comm comm)
@@ -237,6 +290,68 @@ void transpose_bcast_vector(const int n, double* col_vector, double* row_vector,
 void distributed_matrix_vector_mult(const int n, double* local_A, double* local_x, double* local_y, MPI_Comm comm)
 {
     // TODO
+    //process rank in the cartesian coordinates
+    int grid_rank;
+    //process coordinates in cartesia
+    int grid_coord[2];
+    //number of local_rows(local matrix)
+    int n_local_rows = 0;
+    //number of local_columns(local matrix)
+    int n_local_cols = 0;
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
+
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
+
+    //find dims in the cartesian top
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+    //find the number of rows and cols owned by each processor
+    n_local_rows = block_decompose_by_dim(n, comm, 0);
+    n_local_cols = block_decompose_by_dim(n, comm, 1);
+
+    //local x vector needs to be provided to each processor
+    vector<double> local_x_new(n_local_cols);
+
+    transpose_bcast_vector(n, local_x, &local_x_new[0], comm);
+
+    //result temp storing before reduction in each processor
+    vector<double> local_y_temp(n_local_rows);
+
+    //nxn nx1-> matrix multiply
+    if(n_local_cols==n_local_rows){
+      matrix_vector_mult(n_local_cols, local_A, &local_x_new[0], &local_y_temp[0]);
+    }
+    //nxm mx1-> matrix multiply
+    else{
+      matrix_vector_mult(n_local_rows, n_local_cols, local_A, &local_x_new[0], &local_y_temp[0]);
+    }
+
+    //Create a row communicator to reduce the result to first columns
+    MPI_Comm row_comm;
+    int remain_dims[2] = {false, true};
+    MPI_Cart_sub(comm, remain_dims, &row_comm);
+
+    //get the rank of the first cols
+    int first_col_rank;
+    int first_col_coords[ ] = {0};
+    MPI_Cart_rank(row_comm, first_col_coords, &first_col_rank);
+
+    //reduction on first col
+    MPI_Reduce(&local_y_temp[0], local_y, n_local_rows, MPI_DOUBLE, MPI_SUM, first_col_rank, row_comm);
+
+    /*//print the vector
+    if(grid_coord[1] == 0){
+      for(int i=0;i<n_local_rows;i++){
+        cout<<local_y[i]<<" ";
+      }
+      cout<<endl;
+    }*/
 }
 
 // Solves Ax = b using the iterative jacobi method
