@@ -153,7 +153,7 @@ void distribute_matrix(const int n, double* input_matrix, double** local_matrix,
           if(rank00 == grid_rank){
             if(i == 0 && k == 0) start_address = &input_matrix[ 0 + (j*n)];
             else if(i==0 && k!=0) start_address = &input_matrix[0 + (j*n) + (k * block_decompose(n, dims[1], k-1))];
-            else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1))+(j*n)+(k * block_decompose(n, dims[1], k-1))];
+            else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1)*n)+(j*n)+(k * block_decompose(n, dims[1], k-1))];
             //no need to send the matrix and keep it here in new location
             if(dest_rank == rank00){
               //memcpy(local_matrix[j], start_address, n_local_cols * sizeof(double));
@@ -179,6 +179,58 @@ void distribute_matrix(const int n, double* input_matrix, double** local_matrix,
 void transpose_bcast_vector(const int n, double* col_vector, double* row_vector, MPI_Comm comm)
 {
     // TODO
+    //process rank in the cartesian coordinates
+    int grid_rank;
+    //MPI Recv status
+    MPI_Status status;
+    //process coordinates in cartesia
+    int grid_coord[2];
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
+
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
+
+    //find grid_coord in the cartesian top
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+    //create Row communicator to send to diagonal elements
+    MPI_Comm row_comm;
+    int remain_dims[2] = {false, true};
+    MPI_Cart_sub(comm, remain_dims, &row_comm);
+
+    //get rank 00  as no send is required, just a memcpy will suffice
+    int rank00;
+    int coords[2] = {0, 0};
+    MPI_Cart_rank(comm, coords, &rank00);
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+    //{0,0} cpy from colvector row vector.
+    if(rank00 == grid_rank){
+      memcpy(row_vector, col_vector, (block_decompose(n, dims[0], grid_coord[0])*sizeof(double)));
+    }
+    //the process is a column process that sends the data to the diagonal element using row comm
+    //rank in row communicator is grid_coord[0] for the diagonal element
+    else if(grid_coord[1] == 0){
+      MPI_Send(col_vector, block_decompose(n, dims[0], grid_coord[0]), MPI_DOUBLE, grid_coord[0], 111, row_comm);
+    }
+    //the diagonal process thats going to recv from the sender(the column sender will always be zero is row_comm as the first element)
+    else if(grid_coord[1] == grid_coord[0]){
+      MPI_Recv(row_vector, block_decompose(n, dims[0], grid_coord[0]), MPI_DOUBLE, 0, 111, row_comm, &status);
+    }
+
+    //create column communicator for bcast
+    MPI_Comm col_comm;
+    remain_dims[0] = true;
+    remain_dims[1] = false;
+    MPI_Cart_sub(comm, remain_dims, &col_comm);
+
+    //bcast the vector from diagonal elements to the column
+    MPI_Bcast(row_vector, block_decompose(n, dims[1], grid_coord[1]), MPI_DOUBLE, grid_coord[1], col_comm);
 }
 
 

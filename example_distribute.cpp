@@ -31,6 +31,69 @@ inline int block_decompose_by_dim(const int n, MPI_Comm comm, int dim)
     return block_decompose(n, dims[dim], coords[dim]);
 }
 
+void transpose_bcast_vector(const int n, double* col_vector, double* row_vector, MPI_Comm comm)
+{
+    // TODO
+    //process rank in the cartesian coordinates
+    int grid_rank;
+    //MPI Recv status
+    MPI_Status status;
+    //process coordinates in cartesia
+    int grid_coord[2];
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
+
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
+
+    //find grid_coord in the cartesian top
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+    //create Row communicator to send to diagonal elements
+    MPI_Comm row_comm;
+    int remain_dims[2] = {false, true};
+    MPI_Cart_sub(comm, remain_dims, &row_comm);
+
+    //get rank 00  as no send is required, just a memcpy will suffice
+    int rank00;
+    int coords[2] = {0, 0};
+    MPI_Cart_rank(comm, coords, &rank00);
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+    //{0,0} cpy from colvector row vector.
+    if(rank00 == grid_rank){
+      memcpy(row_vector, col_vector, (block_decompose(n, dims[0], grid_coord[0])*sizeof(double)));
+    }
+    //the process is a column process that sends the data to the diagonal element using row comm
+    //rank in row communicator is grid_coord[0] for the diagonal element
+    else if(grid_coord[1] == 0){
+      MPI_Send(col_vector, block_decompose(n, dims[0], grid_coord[0]), MPI_DOUBLE, grid_coord[0], 111, row_comm);
+    }
+    //the diagonal process thats going to recv from the sender(the column sender will always be zero is row_comm as the first element)
+    else if(grid_coord[1] == grid_coord[0]){
+      MPI_Recv(row_vector, block_decompose(n, dims[0], grid_coord[0]), MPI_DOUBLE, 0, 111, row_comm, &status);
+    }
+
+    //create column communicator for bcast
+    MPI_Comm col_comm;
+    remain_dims[0] = true;
+    remain_dims[1] = false;
+    MPI_Cart_sub(comm, remain_dims, &col_comm);
+
+    //bcast the vector from diagonal elements to the column
+    MPI_Bcast(row_vector, block_decompose(n, dims[1], grid_coord[1]), MPI_DOUBLE, grid_coord[1], col_comm);
+
+    cout<<grid_coord[0]<<" "<<grid_coord[1]<<endl;
+    for(int i = 0; i < block_decompose(n, dims[1], grid_coord[1]); i++){
+      cout<<row_vector[i]<<" ";
+    }
+    cout<<endl;
+}
+
 void distribute_vector(const int n, double* input_vector, double** local_vector, MPI_Comm comm)
 {
     // TODO
@@ -85,10 +148,10 @@ void distribute_vector(const int n, double* input_vector, double** local_vector,
       MPI_Scatterv(input_vector, &sendcnt[0], &displ[0], MPI_DOUBLE, *local_vector, recvcnt, MPI_DOUBLE, root, col_comm);
 
       //print the vector;
-      for(int i = 0;i<recvcnt;i++){
+      /*for(int i = 0;i<recvcnt;i++){
         cout<<(*local_vector)[i]<<" ";
       }
-      cout<<endl;
+      cout<<endl;*/
     }
 
 }
@@ -154,7 +217,7 @@ void distribute_matrix(const int n, double* input_matrix, double** local_matrix,
         if(rank00 == grid_rank){
           if(i == 0 && k == 0) start_address = &input_matrix[ 0 + (j*n)];
           else if(i==0 && k!=0) start_address = &input_matrix[0 + (j*n) + (k * block_decompose(n, dims[1], k-1))];
-          else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1))+(j*n)+(k * block_decompose(n, dims[1], k-1))];
+          else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1)*n)+(j*n)+(k * block_decompose(n, dims[1], k-1))];
           //no need to send the matrix and keep it here in new location
           if(dest_rank == rank00){
             //memcpy(local_matrix[j], start_address, n_local_cols * sizeof(double));
@@ -207,10 +270,10 @@ int main(int argc, char *argv[])
 
 
      // simple 4 by 4 input matrix
-  double A[5*5] = {10., -1., 2., 0.,6.0,
-                            -1., 11., -1., 3.,7.2,
-                            2., -1., 10., -1.,8.1,
-                            0.0, 3., -1., 8.,9.,
+  double A[5*5] = {10., -1., 2., 0.,10.,
+                            -1., 11., -1., 3.,11.,
+                            2., -1., 10., -1.,12.,
+                            0.0, 3., -1., 8.,13.,
                             10.0, 13., -11., 18.,19.};
 
   double x[5] = {6., 25., -11., 15., 10.};
@@ -218,9 +281,15 @@ int main(int argc, char *argv[])
    int n = 5;
    double* local_A = NULL;
    double* local_x = NULL;
-   distribute_matrix(n, &A[0], &local_A, grid_comm);
+   //distribute_matrix(n, &A[0], &local_A, grid_comm);
    distribute_vector(n, &x[0], &local_x, grid_comm);
-   if(local_x != NULL)cout<<local_x[0]<<endl;
+   // Get the local vector for matrix multiplication
+   int n_local_cols = block_decompose_by_dim(n, grid_comm, 1);
+   double* local_xx = new double[n_local_cols];
+   transpose_bcast_vector(n, local_x, local_xx, grid_comm);
+
+
+   //if(local_x != NULL)cout<<local_x[0]<<endl;
 
    // finalize MPI
    MPI_Finalize();
