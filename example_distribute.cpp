@@ -111,11 +111,11 @@ void transpose_bcast_vector(const int n, double* col_vector, double* row_vector,
     //bcast the vector from diagonal elements to the column
     MPI_Bcast(row_vector, block_decompose(n, dims[1], grid_coord[1]), MPI_DOUBLE, grid_coord[1], col_comm);
 
-    cout<<grid_coord[0]<<" "<<grid_coord[1]<<endl;
+    /*cout<<grid_coord[0]<<" "<<grid_coord[1]<<endl;
     for(int i = 0; i < block_decompose(n, dims[1], grid_coord[1]); i++){
       cout<<row_vector[i]<<" ";
     }
-    cout<<endl;
+    cout<<endl;*/
 }
 
 void distribute_vector(const int n, double* input_vector, double** local_vector, MPI_Comm comm)
@@ -388,13 +388,213 @@ void distributed_matrix_vector_mult(const int n, double* local_A, double* local_
     MPI_Reduce(&local_y_temp[0], local_y, n_local_rows, MPI_DOUBLE, MPI_SUM, first_col_rank, row_comm);
 
     //print the vector
-    if(grid_coord[1] == 0){
+    /*if(grid_coord[1] == 0){
       for(int i=0;i<n_local_rows;i++){
         cout<<local_y[i]<<" ";
       }
       cout<<endl;
+    }*/
+
+}
+
+void parallel_update_x(const int n, double* local_R, double* local_x, double* local_b, double* local_D, MPI_Comm comm){
+  //process rank in the cartesian coordinates
+  int grid_rank;
+  //process coordinates in cartesia
+  int grid_coord[2];
+  //number of local_rows(local matrix)
+  int n_local_rows = 0;
+  //number of local_columns(local matrix)
+  int n_local_cols = 0;
+  //size of processors
+  int p;
+  //dimension
+  int dims[2];
+  //period
+  int periods[2];
+
+  MPI_Comm_rank(comm, &grid_rank);
+  MPI_Comm_size(comm, &p);
+
+  //find dims in the cartesian top
+  MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+  //find the number of rows and cols owned by each processor
+  n_local_rows = block_decompose_by_dim(n, comm, 0);
+  n_local_cols = block_decompose_by_dim(n, comm, 1);
+  //multiply R*x
+  vector<double> temp_local_y(n_local_rows);
+  distributed_matrix_vector_mult(n, local_R, local_x, &temp_local_y[0], comm);
+  //first column will update the x
+  if(grid_coord[1] == 0){
+    for(int i = 0; i < n_local_rows; i++){
+      local_x[i] = (local_b[i] - temp_local_y[i]) / local_D[i];
+    }
+  }
+}
+
+double parallel_L2_norm(const int n, double* local_A, double* local_x, double* local_b, MPI_Comm comm){
+  //process rank in the cartesian coordinates
+  int grid_rank;
+  //process coordinates in cartesia
+  int grid_coord[2];
+  //number of local_rows(local matrix)
+  int n_local_rows = 0;
+  //number of local_columns(local matrix)
+  int n_local_cols = 0;
+  //size of processors
+  int p;
+  //dimension
+  int dims[2];
+  //period
+  int periods[2];
+
+  MPI_Comm_rank(comm, &grid_rank);
+  MPI_Comm_size(comm, &p);
+
+  //find dims in the cartesian top
+  MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+  //find the number of rows and cols owned by each processor
+  n_local_rows = block_decompose_by_dim(n, comm, 0);
+  n_local_cols = block_decompose_by_dim(n, comm, 1);
+  //multiply A*x
+  vector<double> temp_local_y(n_local_rows);
+  distributed_matrix_vector_mult(n, local_A, local_x, &temp_local_y[0], comm);
+
+  //create a column communicator
+  MPI_Comm col_comm;
+  int remain_dims[2] = {true, false};
+  MPI_Cart_sub(comm, remain_dims, &col_comm);
+
+  //calculate (Ax-b)^2 in the first columns
+  double l2_norm;
+  if(grid_coord[1] == 0){
+    double accum = 0.0;
+    for(int i = 0; i < n_local_rows; i++){
+      accum+=(temp_local_y[i]-local_b[i])*(temp_local_y[i]-local_b[i]);
+    }
+    MPI_Allreduce(&accum, &l2_norm, 1, MPI_DOUBLE, MPI_SUM, col_comm);
+    l2_norm = sqrt(l2_norm);
+  }
+  //Bcast this value to the row so that every one has the value of l2_norm
+  //row communicator
+  MPI_Comm row_comm;
+  remain_dims[0] = false;
+  remain_dims[1] = true;
+  MPI_Cart_sub(comm, remain_dims, &row_comm);
+
+  //Bcasting root
+  int bcast_root;
+  int bcast_coords[ ] = {0};
+  MPI_Cart_rank(row_comm, bcast_coords, &bcast_root);
+  //bcast l2norm
+  MPI_Bcast(&l2_norm, 1, MPI_DOUBLE, bcast_root, row_comm);
+  return l2_norm;
+}
+
+
+// Solves Ax = b using the iterative jacobi method
+void distributed_jacobi(const int n, double* local_A, double* local_b, double* local_x,
+                MPI_Comm comm, int max_iter, double l2_termination)
+{
+    // TODO
+    //process rank in the cartesian coordinates
+    int grid_rank;
+    //process coordinates in cartesia
+    int grid_coord[2];
+    //number of local_rows(local matrix)
+    int n_local_rows = 0;
+    //number of local_columns(local matrix)
+    int n_local_cols = 0;
+    //status for MPI_Recv
+    MPI_Status status;
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
+
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
+
+    //find dims in the cartesian top
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+
+    //find the number of rows and cols owned by each processor
+    n_local_rows = block_decompose_by_dim(n, comm, 0);
+    n_local_cols = block_decompose_by_dim(n, comm, 1);
+
+    //calculate local_D and local_R matrix
+    vector<double>local_D(n_local_rows);
+    vector<double>local_R(n_local_rows* n_local_cols);
+
+    //only processor with coord[0]==coord[1] will own diagonal Elements
+    if(grid_coord[0] == grid_coord[1]){
+      /*memcpy(&local_R[0], local_A, n_local_cols*n_local_rows*sizeof(double));
+      //now make diagonal elements zero in R and store diagonal elements in local vector
+      for(int i = 0; i < n_local_rows;i++){
+        local_D[i] = local_R[i*n_local_cols + i];
+        local_R[i*n_local_cols + i] = 0;
+      }*/
+      //now make diagonal elements zero in R and store diagonal elements in local vector
+      int j = 0;
+      for(int i = 0 ;i <(n_local_cols*n_local_rows);i++){
+        if(i % (n_local_cols + 1) == 0) {
+          local_D[j] = local_A[i];
+          local_R[i] = 0;
+          j++;
+        }
+        else{
+          local_R[i] = local_A[i];
+        }
+      }
+    }
+    //no diagnal elements so R = A
+    else{
+      memcpy(&local_R[0], local_A, n_local_cols*n_local_rows*sizeof(double));
+    }
+    //now collect the Diagonal elements into the first column using row communicators
+    MPI_Comm row_comm;
+    int remain_dims[2] = {false, true};
+    MPI_Cart_sub(comm, remain_dims, &row_comm);
+
+    //the diagonal processor will send the local_D to the first processor in the comm except(0,0) no need to send in that case
+    if(grid_coord[0] == grid_coord[1] && grid_coord[0]!=0){
+      int recv_rank;
+      int recv_coord[] = {0};
+      MPI_Cart_rank(row_comm, recv_coord, &recv_rank);
+      //send local_D to the rank calculated above
+      MPI_Send(&local_D[0], n_local_rows, MPI_DOUBLE, recv_rank, 111, row_comm);
+    }
+    //The first column need to recv the local_D(except(0,0 as it already has the data))
+    if(grid_coord[1]==0 && grid_coord[0]!=0){
+      int send_rank;
+      int send_coord[] = {grid_coord[0]};
+      MPI_Cart_rank(row_comm, send_coord, &send_rank);
+      MPI_Recv(&local_D[0], n_local_rows, MPI_DOUBLE, send_rank, 111, row_comm, &status);
     }
 
+    cout<<"hello"<<grid_coord[0]<<" "<<grid_coord[1]<<endl;
+    for(int i = 0; i<n_local_rows;i++){
+      cout<<local_D[i]<<endl;
+    }
+
+    //all the data is laid out, now starting Jacobi
+    //initialize x to zero
+    if(grid_coord[1] == 0){
+      for(int i = 0;i < n_local_rows; i++){
+        local_x[i] = 0;
+      }
+    }
+    //iteration start
+    int iter = 0;
+    //check for condition
+    while(parallel_L2_norm(n, local_A, local_x, local_b, comm) > l2_termination && iter < max_iter){
+      parallel_update_x(n, &local_R[0], local_x, local_b, &local_D[0], comm);
+      iter++;
+    }
 }
 
 int main(int argc, char *argv[])
@@ -419,7 +619,7 @@ int main(int argc, char *argv[])
 
 
      // simple 4 by 4 input matrix
-  double A[5*5] = {10., -1., 2., 0.,10.,
+  /*double A[5*5] = {10., -1., 2., 0.,10.,
                             -1., 11., -1., 3.,11.,
                             2., -1., 10., -1.,12.,
                             0.0, 3., -1., 8.,13.,
@@ -427,8 +627,8 @@ int main(int argc, char *argv[])
 
   double x[5] = {6., 25., -11., 15., 10.};
 
-   int n = 5;
-   double* local_A = NULL;
+   int n = 5;*/
+   /*double* local_A = NULL;
    double* local_x = NULL;
    distribute_matrix(n, &A[0], &local_A, grid_comm);
    distribute_vector(n, &x[0], &local_x, grid_comm);
@@ -448,7 +648,28 @@ int main(int argc, char *argv[])
 
    //if(local_x != NULL)cout<<local_x[0]<<endl;
 
-   // finalize MPI
+   // finalize MPI*/
+
+   // distribute the array onto local processors!
+   // simple 4 by 4 input matrix
+   double A[4*4] = {10., -1., 2., 0.,
+                          -1., 11., -1., 3.,
+                          2., -1., 10., -1.,
+                          0.0, 3., -1., 8.};
+   double b[4] =  {6., 25., -11., 15.};
+   double x[4];
+   int n=4;
+   double* local_A = NULL;
+   double* local_b = NULL;
+   distribute_matrix(n, &A[0], &local_A, grid_comm);
+   distribute_vector(n, &b[0], &local_b, grid_comm);
+
+   // allocate local result space
+   double* local_x = new double[block_decompose_by_dim(n, grid_comm, 0)];
+   distributed_jacobi(n, local_A, local_b, local_x, grid_comm, 100, 1e-10);
+
+   // gather results back to rank 0
+   gather_vector(n, local_x, x, grid_comm);
    MPI_Finalize();
    return 0;
 }

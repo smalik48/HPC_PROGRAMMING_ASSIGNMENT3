@@ -258,6 +258,10 @@ void distributed_matrix_vector_mult(const int n, double* local_A,
                                     MPI_Comm comm);
 
 
+
+void parallel_update_x(const int n, double* local_R, double* local_x, double* local_b, double* local_D, MPI_Comm comm);
+
+double parallel_L2_norm(const int n, double* local_A, double* local_x, double* local_b, MPI_Comm comm);
 /**
  * @brief   Solves A*x = b for `x` using Jacobi's method, where A, b, and x are
  *          distirbuted among a q-by-q processor grid.
