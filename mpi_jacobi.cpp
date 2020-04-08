@@ -355,100 +355,100 @@ void distributed_matrix_vector_mult(const int n, double* local_A, double* local_
 }
 
 void parallel_update_x(const int n, double* local_R, double* local_x, double* local_b, double* local_D, MPI_Comm comm){
-  //process rank in the cartesian coordinates
-  int grid_rank;
-  //process coordinates in cartesia
-  int grid_coord[2];
-  //number of local_rows(local matrix)
-  int n_local_rows = 0;
-  //number of local_columns(local matrix)
-  int n_local_cols = 0;
-  //size of processors
-  int p;
-  //dimension
-  int dims[2];
-  //period
-  int periods[2];
+    //process rank in the cartesian coordinates
+    int grid_rank;
+    //process coordinates in cartesia
+    int grid_coord[2];
+    //number of local_rows(local matrix)
+    int n_local_rows = 0;
+    //number of local_columns(local matrix)
+    int n_local_cols = 0;
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
 
-  MPI_Comm_rank(comm, &grid_rank);
-  MPI_Comm_size(comm, &p);
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
 
-  //find dims in the cartesian top
-  MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+    //find dims in the cartesian top
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
 
-  //find the number of rows and cols owned by each processor
-  n_local_rows = block_decompose_by_dim(n, comm, 0);
-  n_local_cols = block_decompose_by_dim(n, comm, 1);
-  //multiply R*x
-  vector<double> temp_local_y(n_local_rows);
-  distributed_matrix_vector_mult(n, local_R, local_x, &temp_local_y[0], comm);
-  //first column will update the x
-  if(grid_coord[1] == 0){
-    for(int i = 0; i < n_local_rows; i++){
-      local_x[i] = (local_b[i] - temp_local_y[i]) / local_D[i];
+    //find the number of rows and cols owned by each processor
+    n_local_rows = block_decompose_by_dim(n, comm, 0);
+    n_local_cols = block_decompose_by_dim(n, comm, 1);
+    //multiply R*x
+    vector<double> temp_local_y(n_local_rows);
+    distributed_matrix_vector_mult(n, local_R, local_x, &temp_local_y[0], comm);
+    //first column will update the x
+    if(grid_coord[1] == 0){
+      for(int i = 0; i < n_local_rows; i++){
+        local_x[i] = (local_b[i] - temp_local_y[i]) / local_D[i];
+      }
     }
-  }
 }
 
 
 double parallel_L2_norm(const int n, double* local_A, double* local_x, double* local_b, MPI_Comm comm){
-  //process rank in the cartesian coordinates
-  int grid_rank;
-  //process coordinates in cartesia
-  int grid_coord[2];
-  //number of local_rows(local matrix)
-  int n_local_rows = 0;
-  //number of local_columns(local matrix)
-  int n_local_cols = 0;
-  //size of processors
-  int p;
-  //dimension
-  int dims[2];
-  //period
-  int periods[2];
+    //process rank in the cartesian coordinates
+    int grid_rank;
+    //process coordinates in cartesia
+    int grid_coord[2];
+    //number of local_rows(local matrix)
+    int n_local_rows = 0;
+    //number of local_columns(local matrix)
+    int n_local_cols = 0;
+    //size of processors
+    int p;
+    //dimension
+    int dims[2];
+    //period
+    int periods[2];
 
-  MPI_Comm_rank(comm, &grid_rank);
-  MPI_Comm_size(comm, &p);
+    MPI_Comm_rank(comm, &grid_rank);
+    MPI_Comm_size(comm, &p);
 
-  //find dims in the cartesian top
-  MPI_Cart_get(comm, 2, dims, periods, grid_coord);
+    //find dims in the cartesian top
+    MPI_Cart_get(comm, 2, dims, periods, grid_coord);
 
-  //find the number of rows and cols owned by each processor
-  n_local_rows = block_decompose_by_dim(n, comm, 0);
-  n_local_cols = block_decompose_by_dim(n, comm, 1);
-  //multiply A*x
-  vector<double> temp_local_y(n_local_rows);
-  distributed_matrix_vector_mult(n, local_A, local_x, &temp_local_y[0], comm);
+    //find the number of rows and cols owned by each processor
+    n_local_rows = block_decompose_by_dim(n, comm, 0);
+    n_local_cols = block_decompose_by_dim(n, comm, 1);
+    //multiply A*x
+    vector<double> temp_local_y(n_local_rows);
+    distributed_matrix_vector_mult(n, local_A, local_x, &temp_local_y[0], comm);
 
-  //create a column communicator
-  MPI_Comm col_comm;
-  int remain_dims[2] = {true, false};
-  MPI_Cart_sub(comm, remain_dims, &col_comm);
+    //create a column communicator
+    MPI_Comm col_comm;
+    int remain_dims[2] = {true, false};
+    MPI_Cart_sub(comm, remain_dims, &col_comm);
 
-  //calculate (Ax-b)^2 in the first columns
-  double l2_norm;
-  if(grid_coord[1] == 0){
-    double accum = 0.0;
-    for(int i = 0; i < n_local_rows; i++){
-      accum+=(temp_local_y[i]-local_b[i])*(temp_local_y[i]-local_b[i]);
+    //calculate (Ax-b)^2 in the first columns
+    double l2_norm;
+    if(grid_coord[1] == 0){
+      double accum = 0.0;
+      for(int i = 0; i < n_local_rows; i++){
+        accum+=(temp_local_y[i]-local_b[i])*(temp_local_y[i]-local_b[i]);
+      }
+      MPI_Allreduce(&accum, &l2_norm, 1, MPI_DOUBLE, MPI_SUM, col_comm);
+      l2_norm = sqrt(l2_norm);
     }
-    MPI_Allreduce(&accum, &l2_norm, 1, MPI_DOUBLE, MPI_SUM, col_comm);
-    l2_norm = sqrt(l2_norm);
-  }
-  //Bcast this value to the row so that every one has the value of l2_norm
-  //row communicator
-  MPI_Comm row_comm;
-  remain_dims[0] = false;
-  remain_dims[1] = true;
-  MPI_Cart_sub(comm, remain_dims, &row_comm);
+    //Bcast this value to the row so that every one has the value of l2_norm
+    //row communicator
+    MPI_Comm row_comm;
+    remain_dims[0] = false;
+    remain_dims[1] = true;
+    MPI_Cart_sub(comm, remain_dims, &row_comm);
 
-  //Bcasting root
-  int bcast_root;
-  int bcast_coords[ ] = {0};
-  MPI_Cart_rank(row_comm, bcast_coords, &bcast_root);
-  //bcast l2norm
-  MPI_Bcast(&l2_norm, 1, MPI_DOUBLE, bcast_root, row_comm);
-  return l2_norm;
+    //Bcasting root
+    int bcast_root;
+    int bcast_coords[ ] = {0};
+    MPI_Cart_rank(row_comm, bcast_coords, &bcast_root);
+    //bcast l2norm
+    MPI_Bcast(&l2_norm, 1, MPI_DOUBLE, bcast_root, row_comm);
+    return l2_norm;
 }
 
 // Solves Ax = b using the iterative jacobi method
