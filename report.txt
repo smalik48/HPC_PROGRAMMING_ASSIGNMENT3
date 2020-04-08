@@ -1,0 +1,15 @@
+sequential method:
+scale as O(n^2*k)where k is the iteration, a small number can be considered constant
+O(n^2)-> we need to run sequential jacobi with varying n and show that its run time is O(n^2)
+
+Parallel Method:
+distribute matrix -> O(n^2) as expected but no extra space as no collective communication is used
+distribute vector -> O(nlogp/q) where q is the sqrt(p) mesh type (distribute b)
+bcast vector-> O(nlogp/q) same as distribute vectors(bcast x)
+multiply locally -> O(n^2/p) computation timer
+all reduce - > O(nlogp/q) communication time(new x)
+
+observation and analysis
+for small n the communication, dominate as distributing matrix is the communication that happens once but overpowers other communication
+for large n the computation starts to show benefits as it is reduced a by a factor of total processors and distribution of matrix is done
+once in the whole process so does not show up significantly.
