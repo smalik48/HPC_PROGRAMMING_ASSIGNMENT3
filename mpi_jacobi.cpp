@@ -489,12 +489,6 @@ void distributed_jacobi(const int n, double* local_A, double* local_b, double* l
 
     //only processor with coord[0]==coord[1] will own diagonal Elements
     if(grid_coord[0] == grid_coord[1]){
-      /*memcpy(&local_R[0], local_A, n_local_cols*n_local_rows*sizeof(double));
-      //now make diagonal elements zero in R and store diagonal elements in local vector
-      for(int i = 0; i < n_local_rows;i++){
-        local_D[i] = local_R[i*n_local_cols + i];
-        local_R[i*n_local_cols + i] = 0;
-      }*/
       //now make diagonal elements zero in R and store diagonal elements in local vector
       int j = 0;
       for(int i = 0 ;i <(n_local_cols*n_local_rows);i++){
