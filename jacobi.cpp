@@ -32,7 +32,7 @@ void find_DandR(const int n, const double* A, vector<double>& D, vector<double>&
 }
 
 void invert_D(const vector<double>& D, vector<double>& D_inv){
-  for(int i = 0; i < D.size(); i++){
+  for(unsigned int i = 0; i < D.size(); i++){
     if(D[i]!=0) D_inv[i] = 1/D[i];
   }
 }
@@ -63,7 +63,7 @@ void matrix_vector_mult(const int n, const int m, const double* A, const double*
 
 double l2_norm(vector<double> const& u) {
     double accum = 0.;
-    for (int i = 0; i < u.size(); i++) {
+    for (unsigned int i = 0; i < u.size(); i++) {
         accum += u[i] * u[i];
     }
     return sqrt(accum);

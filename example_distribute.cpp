@@ -4,7 +4,7 @@
 #include <math.h>
 #include <vector>
 #include <mpi.h>
-
+#include <cstring>
 
 using namespace std;
 
@@ -284,22 +284,30 @@ void distribute_matrix(const int n, double* input_matrix, double** local_matrix,
   MPI_Cart_rank(comm, coords, &rank00);
   MPI_Cart_get(comm, 2, dims, periods, grid_coord);
 
+ 
+  int row_count = 0;
+ 
+
   //iterate over grid row
   for(int i = 0; i < dims[0]; i++){
     grid_coord[0] = i;
+    if(i!=0) row_count+=block_decompose(n, dims[0], i-1);
     //go over each row within a block of matrix
     for(int j = 0; j < block_decompose(n, dims[0], i); j++){
       //go over each column in grid row
+      int col_count = 0;
       for(int k = 0; k < dims[1]; k++){
         grid_coord[1] = k;
+        if(k!=0) col_count += block_decompose(n, dims[1], k-1);
         //calculate the destination rank where the block is supposed to be delivered
         MPI_Cart_rank(comm, grid_coord, &dest_rank);
 
         //see if its master
         if(rank00 == grid_rank){
-          if(i == 0 && k == 0) start_address = &input_matrix[ 0 + (j*n)];
-          else if(i==0 && k!=0) start_address = &input_matrix[0 + (j*n) + (k * block_decompose(n, dims[1], k-1))];
-          else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1)*n)+(j*n)+(k * block_decompose(n, dims[1], k-1))];
+          //if(i == 0 && k == 0) start_address = &input_matrix[ 0 + (j*n)];
+          //else if(i==0 && k!=0) start_address = &input_matrix[0 + (j*n) + (col_count)];
+	 // else if(i!=0 && k==0) start_address = &input_matrix[(row_count*n)+(j*n)];
+          start_address = &input_matrix[ (row_count*n)+(j*n)+(col_count)];
           //no need to send the matrix and keep it here in new location
           if(dest_rank == rank00){
             memcpy((*local_matrix + j*n_local_cols), start_address, n_local_cols * sizeof(double));
@@ -662,14 +670,14 @@ int main(int argc, char *argv[])
    double* local_A = NULL;
    double* local_b = NULL;
    distribute_matrix(n, &A[0], &local_A, grid_comm);
-   distribute_vector(n, &b[0], &local_b, grid_comm);
+//   distribute_vector(n, &b[0], &local_b, grid_comm);
 
    // allocate local result space
-   double* local_x = new double[block_decompose_by_dim(n, grid_comm, 0)];
-   distributed_jacobi(n, local_A, local_b, local_x, grid_comm, 100, 1e-10);
+  // double* local_x = new double[block_decompose_by_dim(n, grid_comm, 0)];
+   //distributed_jacobi(n, local_A, local_b, local_x, grid_comm, 100, 1e-10);
 
    // gather results back to rank 0
-   gather_vector(n, local_x, x, grid_comm);
+   //gather_vector(n, local_x, x, grid_comm);
    MPI_Finalize();
    return 0;
 }

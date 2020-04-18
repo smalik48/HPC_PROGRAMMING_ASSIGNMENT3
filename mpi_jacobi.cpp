@@ -16,6 +16,7 @@
 #include <assert.h>
 #include <math.h>
 #include <vector>
+#include <cstring>
 
 
 using namespace std;
@@ -191,22 +192,29 @@ void distribute_matrix(const int n, double* input_matrix, double** local_matrix,
     MPI_Cart_rank(comm, coords, &rank00);
     MPI_Cart_get(comm, 2, dims, periods, grid_coord);
 
+    int row_count = 0;
+
+
     //iterate over grid row
     for(int i = 0; i < dims[0]; i++){
       grid_coord[0] = i;
+      if(i!=0) row_count+=block_decompose(n, dims[0], i-1);
       //go over each row within a block of matrix
       for(int j = 0; j < block_decompose(n, dims[0], i); j++){
         //go over each column in grid row
+        int col_count = 0;
         for(int k = 0; k < dims[1]; k++){
           grid_coord[1] = k;
+          if(k!=0) col_count += block_decompose(n, dims[1], k-1);
           //calculate the destination rank where the block is supposed to be delivered
           MPI_Cart_rank(comm, grid_coord, &dest_rank);
 
           //see if its master
           if(rank00 == grid_rank){
-            if(i == 0 && k == 0) start_address = &input_matrix[ 0 + (j*n)];
-            else if(i==0 && k!=0) start_address = &input_matrix[0 + (j*n) + (k * block_decompose(n, dims[1], k-1))];
-            else start_address = &input_matrix[ (i*block_decompose(n, dims[0], i-1)*n)+(j*n)+(k * block_decompose(n, dims[1], k-1))];
+            //if(i == 0 && k == 0) start_address = &input_matrix[ 0 + (j*n)];
+            //else if(i==0 && k!=0) start_address = &input_matrix[0 + (j*n) + (col_count)];
+           // else if(i!=0 && k==0) start_address = &input_matrix[(row_count*n)+(j*n)];
+            start_address = &input_matrix[ (row_count*n)+(j*n)+(col_count)];
             //no need to send the matrix and keep it here in new location
             if(dest_rank == rank00){
               memcpy((*local_matrix + j*n_local_cols), start_address, n_local_cols * sizeof(double));
